@@ -1,11 +1,11 @@
 [package]
 name = "wasm_runner"
 version = "1.0.0"
-edition = "2018"
+edition = "2021"
 
 [workspace]
 
 [dependencies]
 futures = "0"
-wasmer = "4"
+wasmtime = "12"
 tokio = { version = "1", features = ["full"] }

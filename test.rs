@@ -15,15 +15,15 @@ fn console_log(text: &str) {
     }
 }
 
-fn read(buf: &[u8], len: i32) -> usize {
+fn read(buf: &[u8], len: i32) -> i32 {
     unsafe {
-        read_ptr(buf.as_ptr(), len) as usize
+        read_ptr(buf.as_ptr(), len)
     }
 }
 
-fn write(buf: &[u8], len: i32) -> usize {
+fn write(buf: &[u8], len: i32) -> i32 {
     unsafe {
-        write_ptr(buf.as_ptr(), len) as usize
+        write_ptr(buf.as_ptr(), len)
     }
 }
 
@@ -40,7 +40,9 @@ pub extern fn connect() {
     let buf = vec![0; 1024];
     let len = read(&buf, 1);
     console_log!("Read: {}", len);
-    console_log!("Text: {}", std::str::from_utf8(&buf[0..len]).unwrap());
-    let res = write(&buf, 1);
-    console_log!("Write: {}", res);
+    if len > 0 {
+        console_log!("Text: {}", std::str::from_utf8(&buf[0..len as usize]).unwrap());
+        let res = write(&buf, 1);
+        console_log!("Write: {}", res);
+    }
 }
