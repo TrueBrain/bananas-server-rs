@@ -1,25 +1,29 @@
+use futures::lock::Mutex;
+use futures::Future;
 use std::error::Error;
 use std::sync::Arc;
-use futures::Future;
-use futures::lock::Mutex;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-use wasmtime::{Engine, Module, Store, Linker, Caller, Config, Extern};
+use tokio::net::{TcpListener, TcpStream};
+use wasmtime::{Caller, Config, Engine, Extern, Linker, Module, Store};
 
 struct ProcessEnv {
     reader: Arc<Mutex<OwnedReadHalf>>,
     writer: Arc<Mutex<OwnedWriteHalf>>,
 }
 
-fn console_log(mut caller: Caller<'_, ProcessEnv>, ptr: i32, length: i32) -> Box<dyn Future<Output = ()> + Send + '_> {
+fn console_log(
+    mut caller: Caller<'_, ProcessEnv>,
+    ptr: i32,
+    length: i32,
+) -> Box<dyn Future<Output = ()> + Send + '_> {
     Box::new(async move {
         let mem = match caller.get_export("memory") {
             Some(Extern::Memory(mem)) => mem,
             _ => panic!("failed to find WASM memory"),
         };
 
-        let data = mem.data(&caller)[ptr as usize ..ptr as usize + length as usize].as_ref();
+        let data = mem.data(&caller)[ptr as usize..ptr as usize + length as usize].as_ref();
         let string = match std::str::from_utf8(data) {
             Ok(string) => string,
             Err(_) => "(invalid string)",
@@ -32,13 +36,18 @@ fn console_log(mut caller: Caller<'_, ProcessEnv>, ptr: i32, length: i32) -> Box
     })
 }
 
-fn read(mut caller: Caller<'_, ProcessEnv>, ptr: i32, length: i32) -> Box<dyn Future<Output = i32> + Send + '_> {
+fn read(
+    mut caller: Caller<'_, ProcessEnv>,
+    ptr: i32,
+    length: i32,
+) -> Box<dyn Future<Output = i32> + Send + '_> {
     Box::new(async move {
         let reader = caller.data().reader.clone();
         let mut reader = reader.lock().await;
 
         let mem = caller.get_export("memory").unwrap().into_memory().unwrap();
-        let mut data = mem.data_mut(&mut caller)[ptr as usize ..ptr as usize + length as usize].as_mut();
+        let mut data =
+            mem.data_mut(&mut caller)[ptr as usize..ptr as usize + length as usize].as_mut();
 
         match reader.read_exact(&mut data).await {
             Ok(n) => n as i32,
@@ -47,13 +56,17 @@ fn read(mut caller: Caller<'_, ProcessEnv>, ptr: i32, length: i32) -> Box<dyn Fu
     })
 }
 
-fn write(mut caller: Caller<'_, ProcessEnv>, ptr: i32, length: i32) -> Box<dyn Future<Output = i32> + Send + '_> {
+fn write(
+    mut caller: Caller<'_, ProcessEnv>,
+    ptr: i32,
+    length: i32,
+) -> Box<dyn Future<Output = i32> + Send + '_> {
     Box::new(async move {
         let writer = caller.data().writer.clone();
         let mut writer = writer.lock().await;
 
         let mem = caller.get_export("memory").unwrap().into_memory().unwrap();
-        let data = mem.data(&caller)[ptr as usize ..ptr as usize + length as usize].as_ref();
+        let data = mem.data(&caller)[ptr as usize..ptr as usize + length as usize].as_ref();
 
         match writer.write(&data).await {
             Ok(n) => n as i32,
@@ -62,13 +75,21 @@ fn write(mut caller: Caller<'_, ProcessEnv>, ptr: i32, length: i32) -> Box<dyn F
     })
 }
 
-async fn process(socket: TcpStream, engine: &Engine, module: &Module, linker: &Linker<ProcessEnv>) -> Result<(), Box<dyn Error>> {
+async fn process(
+    socket: TcpStream,
+    engine: &Engine,
+    module: &Module,
+    linker: &Linker<ProcessEnv>,
+) -> Result<(), Box<dyn Error>> {
     let (reader, writer) = socket.into_split();
 
-    let mut store = Store::new(&engine, ProcessEnv {
-        reader: Arc::new(Mutex::new(reader)),
-        writer: Arc::new(Mutex::new(writer)),
-    });
+    let mut store = Store::new(
+        &engine,
+        ProcessEnv {
+            reader: Arc::new(Mutex::new(reader)),
+            writer: Arc::new(Mutex::new(writer)),
+        },
+    );
     let instance = linker.instantiate_async(&mut store, &module).await?;
 
     let connect = instance.get_typed_func::<(), ()>(&mut store, "connect")?;
@@ -78,7 +99,9 @@ async fn process(socket: TcpStream, engine: &Engine, module: &Module, linker: &L
 }
 
 async fn listen() -> Result<(), Box<dyn Error>> {
-    let wasm_bytes = std::fs::read("../test2.wasm")?;
+    let wasm_bytes = std::fs::read(
+        "../bananas_server/target/wasm32-unknown-unknown/release/bananas_server.wasm",
+    )?;
 
     let engine = Engine::new(Config::new().async_support(true))?;
     let module = Module::new(&engine, wasm_bytes)?;
@@ -102,7 +125,7 @@ async fn listen() -> Result<(), Box<dyn Error>> {
         /* Spawn a new task to process the new connection. */
         tokio::spawn(async move {
             match process(socket, &engine, &module, &linker).await {
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(e) => println!("Failed to process connection: {}", e),
             }
         });

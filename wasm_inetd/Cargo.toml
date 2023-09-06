@@ -1,5 +1,5 @@
 [package]
-name = "wasm_runner"
+name = "wasm_inetd"
 version = "1.0.0"
 edition = "2021"
 
