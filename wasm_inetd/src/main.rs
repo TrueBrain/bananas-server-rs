@@ -51,6 +51,7 @@ fn read(
 
         match reader.read_exact(&mut data).await {
             Ok(n) => n as i32,
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => 0i32,
             Err(_) => -1i32,
         }
     })

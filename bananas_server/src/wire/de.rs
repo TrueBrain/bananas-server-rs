@@ -1,24 +1,19 @@
 use byteorder::{LittleEndian, ReadBytesExt};
-use serde::de::{self, DeserializeSeed, EnumAccess, SeqAccess, VariantAccess, Visitor};
+use serde::de::{
+    self, DeserializeSeed, EnumAccess, IntoDeserializer, SeqAccess, VariantAccess, Visitor,
+};
 use serde::Deserialize;
 
 use super::error::{Error, Result};
 
-#[derive(Deserialize)]
-pub struct VecLen<L, T> {
-    #[allow(dead_code)]
-    len: L,
-    pub items: Vec<T>,
-}
-
-pub struct Deserializer<'de> {
+struct Deserializer<'de> {
     input: &'de [u8],
     seq_expected: bool,
     seq_length: usize,
 }
 
 impl<'de> Deserializer<'de> {
-    pub fn from_bytes(input: &'de [u8]) -> Self {
+    fn from_bytes(input: &'de [u8]) -> Self {
         Deserializer {
             input,
             seq_expected: false,
@@ -296,7 +291,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        if name == "VecLen" {
+        if name == "DeVecLen" {
             self.seq_expected = true;
         }
 
@@ -305,24 +300,25 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
 
     fn deserialize_enum<V>(
         mut self,
-        _name: &'static str,
+        name: &'static str,
         _variants: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        visitor.visit_enum(Enum { de: &mut self })
+        if name == "ClientPacket" {
+            visitor.visit_enum(PacketEnum { de: &mut self })
+        } else {
+            Err(Error::NotSupported("enum".to_string()))
+        }
     }
 
-    fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_identifier<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        self.input
-            .read_u8()
-            .map_err(|_e| Error::PacketTooShort)
-            .and_then(|x| visitor.visit_u8(x))
+        Err(Error::NotSupported("identifier".to_string()))
     }
 
     fn deserialize_ignored_any<V>(self, _visitor: V) -> Result<V::Value>
@@ -330,6 +326,10 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         V: Visitor<'de>,
     {
         Err(Error::NotSupported("ignored_any".to_string()))
+    }
+
+    fn is_human_readable(&self) -> bool {
+        false
     }
 }
 
@@ -354,11 +354,11 @@ impl<'de, 'a> SeqAccess<'de> for ProtocolSeqAccess<'a, 'de> {
     }
 }
 
-struct Enum<'a, 'de: 'a> {
+struct PacketEnum<'a, 'de: 'a> {
     de: &'a mut Deserializer<'de>,
 }
 
-impl<'de, 'a> EnumAccess<'de> for Enum<'a, 'de> {
+impl<'de, 'a> EnumAccess<'de> for PacketEnum<'a, 'de> {
     type Error = Error;
     type Variant = Self;
 
@@ -366,16 +366,20 @@ impl<'de, 'a> EnumAccess<'de> for Enum<'a, 'de> {
     where
         V: DeserializeSeed<'de>,
     {
-        let val = seed.deserialize(&mut *self.de)?;
+        /* This is called on ClientPacket enums. OpenTTD's protocol always
+         * start with a single u8, indicating the type. The enum has all the
+         * fields named for the number they represent. */
+        let idx = u8::deserialize(&mut *self.de)?.to_string();
+        let val = seed.deserialize(idx.into_deserializer())?;
         Ok((val, self))
     }
 }
 
-impl<'de, 'a> VariantAccess<'de> for Enum<'a, 'de> {
+impl<'de, 'a> VariantAccess<'de> for PacketEnum<'a, 'de> {
     type Error = Error;
 
     fn unit_variant(self) -> Result<()> {
-        Err(Error::NotSupported("unit_variant".to_string()))
+        Ok(())
     }
 
     fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value>
@@ -385,11 +389,11 @@ impl<'de, 'a> VariantAccess<'de> for Enum<'a, 'de> {
         seed.deserialize(self.de)
     }
 
-    fn tuple_variant<V>(self, _len: usize, _visitor: V) -> Result<V::Value>
+    fn tuple_variant<V>(self, len: usize, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        Err(Error::NotSupported("tuple_variant".to_string()))
+        de::Deserializer::deserialize_tuple(self.de, len, visitor)
     }
 
     fn struct_variant<V>(self, fields: &'static [&'static str], visitor: V) -> Result<V::Value>

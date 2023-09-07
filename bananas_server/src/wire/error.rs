@@ -14,6 +14,8 @@ pub enum Error {
     NotSupported(String),
     InvalidString,
     InvalidSeq,
+    WriteFailure,
+    ValidationError(String),
 }
 
 impl ser::Error for Error {
@@ -40,6 +42,8 @@ impl Display for Error {
             }
             Error::InvalidString => formatter.write_str("invalid string (not valid UTF-8)"),
             Error::InvalidSeq => formatter.write_str("invalid sequence (no VecLen used)"),
+            Error::WriteFailure => formatter.write_str("failed to write to buffer"),
+            Error::ValidationError(msg) => formatter.write_str(msg),
         }
     }
 }
